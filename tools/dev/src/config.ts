@@ -133,8 +133,8 @@ export function resolveStopApps(appName: string | undefined): ToolDevAppName[] {
 export function parsePortOption(value: number | string | null | undefined, optionName: string): number | null {
   if (value == null || value === "") return null;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
-    throw new Error(`${optionName} must be an integer between 1 and 65535`);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) {
+    throw new Error(`${optionName} must be an integer between 0 and 65535`);
   }
   return parsed;
 }
