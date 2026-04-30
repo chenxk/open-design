@@ -10,7 +10,15 @@
  *                 non-zero (tail appended to the error message).
  */
 import type { AgentEvent, ChatMessage } from '../types';
+import type {
+  ChatRequest,
+  ChatSseEvent,
+  ChatSseStartPayload,
+  DaemonAgentPayload,
+  SseErrorPayload,
+} from '@open-design/contracts';
 import type { StreamHandlers } from './anthropic';
+import { parseSseFrame } from './sse';
 
 export interface DaemonStreamHandlers extends StreamHandlers {
   onAgentEvent: (ev: AgentEvent) => void;
@@ -54,7 +62,7 @@ export async function streamViaDaemon({
   const transcript = history
     .map((m) => `## ${m.role}\n${m.content.trim()}`)
     .join('\n\n');
-  const body = JSON.stringify({
+  const request: ChatRequest = {
     agentId,
     systemPrompt,
     message: transcript,
@@ -62,7 +70,8 @@ export async function streamViaDaemon({
     attachments: attachments ?? [],
     model: model ?? null,
     reasoning: reasoning ?? null,
-  });
+  };
+  const body = JSON.stringify(request);
 
   let acc = '';
   let stderrBuf = '';
@@ -94,24 +103,26 @@ export async function streamViaDaemon({
       while ((idx = buf.indexOf('\n\n')) !== -1) {
         const frame = buf.slice(0, idx);
         buf = buf.slice(idx + 2);
-        const parsed = parseFrame(frame);
-        if (!parsed) continue;
+        const parsed = parseSseFrame(frame);
+        if (!parsed || parsed.kind !== 'event') continue;
 
-        if (parsed.event === 'stdout') {
-          const chunk = String(parsed.data.chunk ?? '');
+        const event = parsed as unknown as ChatSseEvent;
+
+        if (event.event === 'stdout') {
+          const chunk = String(event.data.chunk ?? '');
           acc += chunk;
           handlers.onDelta(chunk);
           handlers.onAgentEvent({ kind: 'text', text: chunk });
           continue;
         }
 
-        if (parsed.event === 'stderr') {
-          stderrBuf += parsed.data.chunk ?? '';
+        if (event.event === 'stderr') {
+          stderrBuf += event.data.chunk ?? '';
           continue;
         }
 
-        if (parsed.event === 'agent') {
-          const translated = translateAgentEvent(parsed.data);
+        if (event.event === 'agent') {
+          const translated = translateAgentEvent(event.data);
           if (!translated) continue;
           if (translated.kind === 'text') {
             acc += translated.text;
@@ -121,22 +132,24 @@ export async function streamViaDaemon({
           continue;
         }
 
-        if (parsed.event === 'start') {
+        if (event.event === 'start') {
+          const data = event.data as ChatSseStartPayload;
           handlers.onAgentEvent({
             kind: 'status',
             label: 'starting',
-            detail: typeof parsed.data.bin === 'string' ? parsed.data.bin : undefined,
+            detail: typeof data.bin === 'string' ? data.bin : undefined,
           });
           continue;
         }
 
-        if (parsed.event === 'error') {
-          handlers.onError(new Error(String(parsed.data.message ?? 'daemon error')));
+        if (event.event === 'error') {
+          const data = event.data as SseErrorPayload;
+          handlers.onError(new Error(String(data.error?.message ?? data.message ?? 'daemon error')));
           return;
         }
 
-        if (parsed.event === 'end') {
-          exitCode = typeof parsed.data.code === 'number' ? parsed.data.code : null;
+        if (event.event === 'end') {
+          exitCode = typeof event.data.code === 'number' ? event.data.code : null;
         }
       }
     }
@@ -155,30 +168,10 @@ export async function streamViaDaemon({
   }
 }
 
-interface ParsedFrame {
-  event: string;
-  data: Record<string, unknown>;
-}
-
-function parseFrame(frame: string): ParsedFrame | null {
-  const lines = frame.split('\n');
-  let event = 'message';
-  let data = '';
-  for (const line of lines) {
-    if (line.startsWith('event: ')) event = line.slice(7).trim();
-    else if (line.startsWith('data: ')) data += line.slice(6);
-  }
-  try {
-    return { event, data: JSON.parse(data) };
-  } catch {
-    return null;
-  }
-}
-
-// Translate a raw `agent` SSE payload (what apps/daemon/claude-stream.js emits)
+// Translate a raw `agent` SSE payload (what apps/daemon/src/claude-stream.ts emits)
 // into the UI's AgentEvent union. Keep this liberal — unknown types just
 // return null so the UI ignores them instead of rendering garbage.
-function translateAgentEvent(data: Record<string, unknown>): AgentEvent | null {
+function translateAgentEvent(data: DaemonAgentPayload): AgentEvent | null {
   const t = data.type;
   if (t === 'status' && typeof data.label === 'string') {
     return {
