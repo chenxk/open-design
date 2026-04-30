@@ -8,6 +8,11 @@ ENV NODE_ENV=production
 ENV OD_PORT=7456
 ENV OD_DATA_DIR=.od
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && ln -sf /usr/bin/python3 /usr/bin/python \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 COPY . .
