@@ -1,0 +1,1 @@
+sudo docker load -i open-design_v1.0.0.tar
