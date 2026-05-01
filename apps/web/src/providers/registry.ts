@@ -1,11 +1,19 @@
 import type {
   AgentInfo,
+  AppVersionInfo,
+  AppVersionResponse,
   ChatAttachment,
+  DeployConfigResponse,
+  DeployProjectFileResponse,
   DesignSystemDetail,
   DesignSystemSummary,
+  ProjectDeploymentsResponse,
+  PromptTemplateDetail,
+  PromptTemplateSummary,
   ProjectFile,
   SkillDetail,
   SkillSummary,
+  UpdateDeployConfigRequest,
 } from '../types';
 import type { ArtifactManifest } from '../artifacts/types';
 
@@ -62,12 +70,62 @@ export async function fetchDesignSystem(id: string): Promise<DesignSystemDetail 
   }
 }
 
+export async function fetchPromptTemplates(): Promise<PromptTemplateSummary[]> {
+  try {
+    const resp = await fetch('/api/prompt-templates');
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as { promptTemplates: PromptTemplateSummary[] };
+    return json.promptTemplates ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchPromptTemplate(
+  surface: 'image' | 'video',
+  id: string,
+): Promise<PromptTemplateDetail | null> {
+  try {
+    const resp = await fetch(
+      `/api/prompt-templates/${encodeURIComponent(surface)}/${encodeURIComponent(id)}`,
+    );
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as { promptTemplate: PromptTemplateDetail };
+    return json.promptTemplate ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function daemonIsLive(): Promise<boolean> {
   try {
     const resp = await fetch('/api/health');
     return resp.ok;
   } catch {
     return false;
+  }
+}
+
+function isAppVersionInfo(value: unknown): value is AppVersionInfo {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AppVersionInfo>;
+  return (
+    typeof candidate.version === 'string' &&
+    typeof candidate.channel === 'string' &&
+    typeof candidate.packaged === 'boolean' &&
+    typeof candidate.platform === 'string' &&
+    typeof candidate.arch === 'string'
+  );
+}
+
+export async function fetchAppVersionInfo(): Promise<AppVersionInfo | null> {
+  try {
+    const resp = await fetch('/api/version');
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as Partial<AppVersionResponse>;
+    return isAppVersionInfo(json.version) ? json.version : null;
+  } catch {
+    return null;
   }
 }
 
@@ -79,6 +137,80 @@ export async function fetchSkillExample(id: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export async function fetchDeployConfig(): Promise<DeployConfigResponse | null> {
+  try {
+    const resp = await fetch('/api/deploy/config');
+    if (!resp.ok) return null;
+    return (await resp.json()) as DeployConfigResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateDeployConfig(
+  input: UpdateDeployConfigRequest,
+): Promise<DeployConfigResponse | null> {
+  try {
+    const resp = await fetch('/api/deploy/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!resp.ok) return null;
+    return (await resp.json()) as DeployConfigResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchProjectDeployments(
+  projectId: string,
+): Promise<ProjectDeploymentsResponse['deployments']> {
+  try {
+    const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deployments`);
+    if (!resp.ok) return [];
+    const json = (await resp.json()) as ProjectDeploymentsResponse;
+    return json.deployments ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deployProjectFile(
+  projectId: string,
+  fileName: string,
+): Promise<DeployProjectFileResponse> {
+  const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/deploy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileName, providerId: 'vercel-self' }),
+  });
+  if (!resp.ok) {
+    const payload = (await resp.json().catch(() => null)) as
+      | { error?: { message?: string }; message?: string }
+      | null;
+    throw new Error(payload?.error?.message || payload?.message || `Deploy failed (${resp.status})`);
+  }
+  return (await resp.json()) as DeployProjectFileResponse;
+}
+
+export async function checkDeploymentLink(
+  projectId: string,
+  deploymentId: string,
+): Promise<DeployProjectFileResponse> {
+  const resp = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/deployments/${encodeURIComponent(deploymentId)}/check-link`,
+    { method: 'POST' },
+  );
+  if (!resp.ok) {
+    const payload = (await resp.json().catch(() => null)) as
+      | { error?: { message?: string }; message?: string }
+      | null;
+    throw new Error(payload?.error?.message || payload?.message || `Link check failed (${resp.status})`);
+  }
+  return (await resp.json()) as DeployProjectFileResponse;
 }
 
 // Project files — all paths are scoped under .od/projects/<id>/ on disk.
@@ -127,12 +259,37 @@ export async function fetchProjectFilePreview(
 export async function fetchProjectFileText(
   projectId: string,
   name: string,
+  options?: { cache?: RequestCache; cacheBustKey?: string | number },
 ): Promise<string | null> {
+  const url = projectFileUrl(projectId, name);
+  const cacheBustKey = options?.cacheBustKey;
+  const requestUrl =
+    cacheBustKey == null
+      ? url
+      : `${url}${url.includes('?') ? '&' : '?'}cacheBust=${encodeURIComponent(String(cacheBustKey))}`;
+  const init: RequestInit = {};
+  if (options?.cache) init.cache = options.cache;
+
   try {
-    const resp = await fetch(projectFileUrl(projectId, name));
-    if (!resp.ok) return null;
+    const resp = await fetch(requestUrl, init);
+    if (!resp.ok) {
+      console.warn('[fetchProjectFileText] failed:', {
+        name,
+        projectId,
+        status: resp.status,
+        statusText: resp.statusText,
+        url: requestUrl,
+      });
+      return null;
+    }
     return await resp.text();
-  } catch {
+  } catch (err) {
+    console.warn('[fetchProjectFileText] failed:', {
+      error: err,
+      name,
+      projectId,
+      url: requestUrl,
+    });
     return null;
   }
 }

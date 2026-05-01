@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
+import {
+  DEFAULT_AUDIO_MODEL,
+  DEFAULT_IMAGE_MODEL,
+  DEFAULT_VIDEO_MODEL,
+} from '../media/models';
 import type {
   AgentInfo,
   AppConfig,
@@ -8,24 +13,29 @@ import type {
   ProjectKind,
   ProjectMetadata,
   ProjectTemplate,
+  PromptTemplateSummary,
   SkillSummary,
 } from '../types';
 import { DesignsTab } from './DesignsTab';
 import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { DesignSystemsTab } from './DesignSystemsTab';
 import { ExamplesTab } from './ExamplesTab';
+import { AppChromeHeader, SettingsIconButton } from './AppChromeHeader';
 import { Icon } from './Icon';
 import { LanguageMenu } from './LanguageMenu';
 import { CenteredLoader } from './Loading';
 import { NewProjectPanel, type CreateInput } from './NewProjectPanel';
+import { PromptTemplatePreviewModal } from './PromptTemplatePreviewModal';
+import { PromptTemplatesTab } from './PromptTemplatesTab';
 
-type TopTab = 'designs' | 'examples' | 'design-systems';
+type TopTab = 'designs' | 'examples' | 'design-systems' | 'image-templates' | 'video-templates';
 
 interface Props {
   skills: SkillSummary[];
   designSystems: DesignSystemSummary[];
   projects: Project[];
   templates: ProjectTemplate[];
+  promptTemplates: PromptTemplateSummary[];
   defaultDesignSystemId: string | null;
   config: AppConfig;
   agents: AgentInfo[];
@@ -60,6 +70,7 @@ export function EntryView({
   designSystems,
   projects,
   templates,
+  promptTemplates,
   defaultDesignSystemId,
   config,
   agents,
@@ -74,6 +85,8 @@ export function EntryView({
   const t = useT();
   const [topTab, setTopTab] = useState<TopTab>('designs');
   const [previewSystemId, setPreviewSystemId] = useState<string | null>(null);
+  const [previewPromptTemplate, setPreviewPromptTemplate] =
+    useState<PromptTemplateSummary | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => loadSidebarWidth());
   const [resizing, setResizing] = useState(false);
 
@@ -156,128 +169,142 @@ export function EntryView({
   }, [sidebarWidth]);
 
   return (
-    <div
-      className="entry"
-      style={{ gridTemplateColumns: `${sidebarWidth}px 1fr` }}
-    >
-      <aside className="entry-side" style={{ width: sidebarWidth }}>
-        <div className="entry-brand">
-          <span className="entry-brand-mark" aria-hidden>
-            <img src="/logo.svg" alt="" className="brand-mark-img" draggable={false} />
-          </span>
-          <div className="entry-brand-text">
-            <div className="entry-brand-title-row">
-              <span className="entry-brand-title">{t('app.brand')}</span>
-              <span className="entry-brand-pill">{t('app.brandPill')}</span>
-            </div>
-            <div className="entry-brand-subtitle">{t('app.brandSubtitle')}</div>
-          </div>
-        </div>
-        <NewProjectPanel
-          skills={skills}
-          designSystems={designSystems}
-          defaultDesignSystemId={defaultDesignSystemId}
-          templates={templates}
-          onCreate={handleCreate}
-          onImportClaudeDesign={onImportClaudeDesign}
-          loading={loading}
-        />
-        <div className="entry-side-foot">
-          <button
-            type="button"
-            className="foot-pill"
+    <div className="entry-shell">
+      <AppChromeHeader
+        actions={(
+          <SettingsIconButton
             onClick={onOpenSettings}
-            title={t('settings.envConfigure')}
-          >
-            <Icon name="settings" size={12} />
-            <span>
-              {config.mode === 'daemon'
-                ? t('settings.localCli')
-                : t('settings.anthropicApi')}
-            </span>
-            <span style={{ color: 'var(--text-faint)' }}>·</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-              {envMetaLine}
-            </span>
-          </button>
-          <LanguageMenu />
-        </div>
-        <button
-          type="button"
-          aria-label={t('entry.resizeAria')}
-          className={`entry-side-resizer${resizing ? ' dragging' : ''}`}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            startWidthRef.current = sidebarWidth;
-            startXRef.current = e.clientX;
-            setResizing(true);
-          }}
-        />
-      </aside>
-      <main className="entry-main">
-        <div className="entry-header">
-          <div className="entry-tabs" role="tablist">
-            <TopTabButton current={topTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
-            <TopTabButton current={topTab} value="examples" label={t('entry.tabExamples')} onClick={setTopTab} />
-            <TopTabButton
-              current={topTab}
-              value="design-systems"
-              label={t('entry.tabDesignSystems')}
-              onClick={setTopTab}
-            />
-          </div>
-          <div className="entry-header-right">
-            {/* Avatar settings live next to tabs to mirror the project view. */}
+            title={t('entry.openSettingsTitle')}
+            ariaLabel={t('entry.openSettingsAria')}
+          />
+        )}
+      />
+      <div
+        className="entry"
+        style={{ gridTemplateColumns: `${sidebarWidth}px 1fr` }}
+      >
+        <aside className="entry-side" style={{ width: sidebarWidth }}>
+          <NewProjectPanel
+            skills={skills}
+            designSystems={designSystems}
+            defaultDesignSystemId={defaultDesignSystemId}
+            templates={templates}
+            onCreate={handleCreate}
+            onImportClaudeDesign={onImportClaudeDesign}
+            mediaProviders={config.mediaProviders}
+            loading={loading}
+          />
+          <div className="entry-side-foot">
             <button
               type="button"
-              className="avatar-btn"
+              className="foot-pill"
               onClick={onOpenSettings}
-              title={t('entry.openSettingsTitle')}
-              aria-label={t('entry.openSettingsAria')}
+              title={t('settings.envConfigure')}
             >
-              <img
-                src="/avatar.png"
-                alt=""
-                aria-hidden
-                draggable={false}
-                className="avatar-btn-photo"
-              />
+              <Icon name="settings" size={12} />
+              <span>
+                {config.mode === 'daemon'
+                  ? t('settings.localCli')
+                  : t('settings.anthropicApi')}
+              </span>
+              <span style={{ color: 'var(--text-faint)' }}>·</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
+                {envMetaLine}
+              </span>
             </button>
+            <LanguageMenu />
           </div>
-        </div>
-        <div className="entry-tab-content">
-          {loading ? (
-            <CenteredLoader label={t('entry.loadingWorkspace')} />
-          ) : (
-            <>
-              {topTab === 'designs' ? (
-                <DesignsTab
-                  projects={projects}
-                  skills={skills}
-                  designSystems={designSystems}
-                  onOpen={onOpenProject}
-                  onDelete={onDeleteProject}
-                />
-              ) : null}
-              {topTab === 'examples' ? (
-                <ExamplesTab skills={skills} onUsePrompt={usePromptFromSkill} />
-              ) : null}
-              {topTab === 'design-systems' ? (
-                <DesignSystemsTab
-                  systems={designSystems}
-                  selectedId={defaultDesignSystemId}
-                  onSelect={onChangeDefaultDesignSystem}
-                  onPreview={previewDesignSystem}
-                />
-              ) : null}
-            </>
-          )}
-        </div>
-      </main>
+          <button
+            type="button"
+            aria-label={t('entry.resizeAria')}
+            className={`entry-side-resizer${resizing ? ' dragging' : ''}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              startWidthRef.current = sidebarWidth;
+              startXRef.current = e.clientX;
+              setResizing(true);
+            }}
+          />
+        </aside>
+        <main className="entry-main">
+          <div className="entry-header">
+            <div className="entry-tabs" role="tablist">
+              <TopTabButton current={topTab} value="designs" label={t('entry.tabDesigns')} onClick={setTopTab} />
+              <TopTabButton current={topTab} value="examples" label={t('entry.tabExamples')} onClick={setTopTab} />
+              <TopTabButton
+                current={topTab}
+                value="design-systems"
+                label={t('entry.tabDesignSystems')}
+                onClick={setTopTab}
+              />
+              <TopTabButton
+                current={topTab}
+                value="image-templates"
+                label={t('entry.tabImageTemplates')}
+                onClick={setTopTab}
+              />
+              <TopTabButton
+                current={topTab}
+                value="video-templates"
+                label={t('entry.tabVideoTemplates')}
+                onClick={setTopTab}
+              />
+            </div>
+          </div>
+          <div className="entry-tab-content">
+            {loading ? (
+              <CenteredLoader label={t('entry.loadingWorkspace')} />
+            ) : (
+              <>
+                {topTab === 'designs' ? (
+                  <DesignsTab
+                    projects={projects}
+                    skills={skills}
+                    designSystems={designSystems}
+                    onOpen={onOpenProject}
+                    onDelete={onDeleteProject}
+                  />
+                ) : null}
+                {topTab === 'examples' ? (
+                  <ExamplesTab skills={skills} onUsePrompt={usePromptFromSkill} />
+                ) : null}
+                {topTab === 'design-systems' ? (
+                  <DesignSystemsTab
+                    systems={designSystems}
+                    selectedId={defaultDesignSystemId}
+                    onSelect={onChangeDefaultDesignSystem}
+                    onPreview={previewDesignSystem}
+                  />
+                ) : null}
+                {topTab === 'image-templates' ? (
+                  <PromptTemplatesTab
+                    surface="image"
+                    templates={promptTemplates}
+                    onPreview={setPreviewPromptTemplate}
+                  />
+                ) : null}
+                {topTab === 'video-templates' ? (
+                  <PromptTemplatesTab
+                    surface="video"
+                    templates={promptTemplates}
+                    onPreview={setPreviewPromptTemplate}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        </main>
+      </div>
       {previewSystem ? (
         <DesignSystemPreviewModal
           system={previewSystem}
           onClose={() => setPreviewSystemId(null)}
+        />
+      ) : null}
+      {previewPromptTemplate ? (
+        <PromptTemplatePreviewModal
+          summary={previewPromptTemplate}
+          onClose={() => setPreviewPromptTemplate(null)}
         />
       ) : null}
     </div>
@@ -334,6 +361,20 @@ function metadataForSkill(skill: SkillSummary): ProjectMetadata {
         typeof skill.animations === 'boolean' ? skill.animations : false,
     };
   }
+  if (kind === 'image') {
+    return { kind, imageModel: DEFAULT_IMAGE_MODEL, imageAspect: '1:1' };
+  }
+  if (kind === 'video') {
+    return { kind, videoModel: DEFAULT_VIDEO_MODEL, videoAspect: '16:9', videoLength: 5 };
+  }
+  if (kind === 'audio') {
+    return {
+      kind,
+      audioKind: 'speech',
+      audioModel: DEFAULT_AUDIO_MODEL.speech,
+      audioDuration: 10,
+    };
+  }
   return { kind: 'other' };
 }
 
@@ -341,5 +382,8 @@ function kindForSkill(skill: SkillSummary): ProjectKind {
   if (skill.mode === 'deck') return 'deck';
   if (skill.mode === 'prototype') return 'prototype';
   if (skill.mode === 'template') return 'template';
+  if (skill.mode === 'image' || skill.surface === 'image') return 'image';
+  if (skill.mode === 'video' || skill.surface === 'video') return 'video';
+  if (skill.mode === 'audio' || skill.surface === 'audio') return 'audio';
   return 'other';
 }

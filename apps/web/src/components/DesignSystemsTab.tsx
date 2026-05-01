@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
-import { useT } from '../i18n';
-import type { DesignSystemSummary } from '../types';
+import { useI18n } from '../i18n';
+import {
+  localizeDesignSystemCategory,
+  localizeDesignSystemSummary,
+} from '../i18n/content';
+import type { DesignSystemSummary, Surface } from '../types';
 
 interface Props {
   systems: DesignSystemSummary[];
@@ -22,40 +26,71 @@ const CATEGORY_ORDER = [
   'Automotive',
 ];
 
+type SurfaceFilter = 'all' | Surface;
+
+const SURFACE_PILLS: { value: SurfaceFilter; labelKey: 'examples.modeAll' | 'ds.surfaceWeb' | 'ds.surfaceImage' | 'ds.surfaceVideo' | 'ds.surfaceAudio' }[] = [
+  { value: 'all', labelKey: 'examples.modeAll' },
+  { value: 'web', labelKey: 'ds.surfaceWeb' },
+  { value: 'image', labelKey: 'ds.surfaceImage' },
+  { value: 'video', labelKey: 'ds.surfaceVideo' },
+  { value: 'audio', labelKey: 'ds.surfaceAudio' },
+];
+
+function surfaceOf(system: DesignSystemSummary): Surface {
+  return system.surface ?? 'web';
+}
+
 export function DesignSystemsTab({ systems, selectedId, onSelect, onPreview }: Props) {
-  const t = useT();
+  const { locale, t } = useI18n();
   const [filter, setFilter] = useState('');
+  const [surfaceFilter, setSurfaceFilter] = useState<SurfaceFilter>('all');
   const [category, setCategory] = useState<string>('All');
+
+  const surfaceScoped = useMemo(
+    () => surfaceFilter === 'all' ? systems : systems.filter((s) => surfaceOf(s) === surfaceFilter),
+    [systems, surfaceFilter],
+  );
+
+  const surfaceCounts = useMemo(() => {
+    const counts: Record<SurfaceFilter, number> = { all: systems.length, web: 0, image: 0, video: 0, audio: 0 };
+    for (const s of systems) counts[surfaceOf(s)]++;
+    return counts;
+  }, [systems]);
 
   const categories = useMemo(() => {
     const cats = new Set<string>();
-    for (const s of systems) cats.add(s.category || 'Uncategorized');
+    for (const s of surfaceScoped) cats.add(s.category || 'Uncategorized');
     const ordered: string[] = [];
     for (const c of CATEGORY_ORDER) if (cats.has(c)) ordered.push(c);
     for (const c of [...cats].sort()) if (!ordered.includes(c)) ordered.push(c);
     return ['All', ...ordered];
-  }, [systems]);
+  }, [surfaceScoped]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return systems.filter((s) => {
+    return surfaceScoped.filter((s) => {
       if (category !== 'All' && (s.category || 'Uncategorized') !== category) return false;
       if (!q) return true;
+      const summary = localizeDesignSystemSummary(locale, s).toLowerCase();
+      const categoryLabel = localizeDesignSystemCategory(
+        locale,
+        s.category || 'Uncategorized',
+      ).toLowerCase();
       return (
         s.title.toLowerCase().includes(q) ||
-        s.summary.toLowerCase().includes(q)
+        s.summary.toLowerCase().includes(q) ||
+        summary.includes(q) ||
+        categoryLabel.includes(q)
       );
     });
-  }, [systems, filter, category]);
+  }, [surfaceScoped, filter, category, locale]);
 
-  // The category metadata coming from each design system is authored in
-  // English. We translate the well-known buckets (All / Uncategorized) but
-  // pass the rest through unchanged so user-facing labels stay aligned with
-  // the underlying tags.
+  // Category metadata is authored in English; keep raw values in state for
+  // filtering while localizing the visible labels for the current UI locale.
   const renderCategory = (c: string) => {
     if (c === 'All') return t('ds.categoryAll');
     if (c === 'Uncategorized') return t('ds.categoryUncategorized');
-    return c;
+    return localizeDesignSystemCategory(locale, c);
   };
 
   return (
@@ -73,6 +108,29 @@ export function DesignSystemsTab({ systems, selectedId, onSelect, onPreview }: P
             </option>
           ))}
         </select>
+      </div>
+      <div
+        className="examples-filter-row"
+        role="tablist"
+        aria-label={t('ds.surfaceLabel')}
+      >
+        <span className="examples-filter-label">{t('ds.surfaceLabel')}</span>
+        {SURFACE_PILLS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            role="tab"
+            aria-selected={surfaceFilter === p.value}
+            className={`filter-pill ${surfaceFilter === p.value ? 'active' : ''}`}
+            onClick={() => {
+              setSurfaceFilter(p.value);
+              setCategory('All');
+            }}
+          >
+            {t(p.labelKey)}
+            <span className="filter-pill-count">{surfaceCounts[p.value]}</span>
+          </button>
+        ))}
       </div>
       {filtered.length === 0 ? (
         <div className="tab-empty">{t('ds.emptyNoMatch')}</div>
@@ -95,7 +153,9 @@ export function DesignSystemsTab({ systems, selectedId, onSelect, onPreview }: P
                       </span>
                     ) : null}
                   </div>
-                  <div className="ds-row-summary">{s.summary || s.category}</div>
+                  <div className="ds-row-summary">
+                    {localizeDesignSystemSummary(locale, s)}
+                  </div>
                 </div>
                 {s.swatches && s.swatches.length > 0 ? (
                   <div className="ds-row-swatches" aria-hidden>
