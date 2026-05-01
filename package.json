@@ -12,6 +12,7 @@
   "scripts": {
     "postinstall": "node ./scripts/postinstall.mjs",
     "tools-dev": "pnpm exec tools-dev",
+    "dev:fixed": "pnpm tools-dev run web --daemon-port 7456 --web-port 3000",
     "build": "pnpm --filter @open-design/web build",
     "check:residual-js": "node --experimental-strip-types scripts/check-residual-js.ts",
     "test:e2e:live": "pnpm --filter @open-design/e2e test:e2e:live",

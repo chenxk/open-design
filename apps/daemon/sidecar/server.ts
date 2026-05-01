@@ -13,7 +13,7 @@ import {
   type SidecarRuntimeContext,
 } from "@open-design/sidecar";
 
-import { startServer } from "../src/server.js";
+import { startServer, closeDatabase } from "../src/server.js";
 
 const DAEMON_PORT_ENV = SIDECAR_ENV.DAEMON_PORT;
 const TOOLS_DEV_PARENT_PID_ENV = SIDECAR_ENV.TOOLS_DEV_PARENT_PID;
@@ -90,6 +90,7 @@ export async function startDaemonSidecar(runtime: SidecarRuntimeContext<SidecarS
     state.updatedAt = new Date().toISOString();
     await ipcServer?.close().catch(() => undefined);
     await closeHttpServer(serverHandle.server).catch(() => undefined);
+    await closeDatabase().catch(() => undefined);
     resolveStopped();
   }
 

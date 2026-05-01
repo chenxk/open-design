@@ -66,10 +66,12 @@ import {
 /** @typedef {import('@open-design/contracts').ProxyStreamRequest} ProxyStreamRequest */
 /** @typedef {import('@open-design/contracts').ProxySseEvent} ProxySseEvent */
 
+export { closeDatabase } from './db.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 export function resolveProjectRoot(moduleDir: string): string {
-  const daemonDir = path.basename(moduleDir) === 'dist'
+  const daemonDir = (path.basename(moduleDir) === 'dist' || path.basename(moduleDir) === 'src')
     ? path.dirname(moduleDir)
     : moduleDir;
   return path.resolve(daemonDir, '../..');
@@ -86,6 +88,7 @@ const DESIGN_SYSTEMS_DIR = path.join(PROJECT_ROOT, 'design-systems');
 const RUNTIME_DATA_DIR = process.env.OD_DATA_DIR
   ? path.resolve(PROJECT_ROOT, process.env.OD_DATA_DIR)
   : path.join(PROJECT_ROOT, '.od');
+console.log(`[od] using data dir: ${RUNTIME_DATA_DIR}`);
 const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'artifacts');
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, 'projects');
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
